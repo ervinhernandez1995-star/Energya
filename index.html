@@ -2698,9 +2698,26 @@ button, [role="button"], summary, label[for], select, input[type="submit"],
     var cfg   = CATALOG[elSvc.value];
     var etiquetaPrio = { '1':'Programada', '1.18':'Prioritaria (<72h)', '1.45':'Emergencia' }[elPrio.value] || 'Programada';
 
-    // Motivo/descripción rico: lo que trae el cotizador + lo que el cliente escribió.
+    /* v12.3 · LOS DATOS VAN POR SEPARADO, NO EN UNA SOLA CADENA
+       ──────────────────────────────────────────────────────────
+       Antes se concatenaba todo aquí en `motivo`. Esa cadena superaba los 200
+       caracteres a los que la alerta recortaba la nota, y lo primero que se
+       perdía era el final: el detalle escrito por el cliente. Te llegaba el
+       aviso de la cita sin lo único que dice qué hay que hacer.
+
+       Ahora cada dato viaja en su propio campo y el servidor los compone en
+       líneas. Se lee de un vistazo en el WhatsApp y el detalle del cliente
+       tiene su espacio reservado, sin competir con lo demás.
+
+       `motivo` se conserva porque el endpoint antiguo (/api/appointments, el
+       respaldo cuando no se elige hora) espera un único campo de texto. */
+    var zonaTxt  = elZone.options[elZone.selectedIndex] ? elZone.options[elZone.selectedIndex].text : '';
+    var propTxt  = (typeof elProp !== 'undefined' && elProp && elProp.options[elProp.selectedIndex])
+                   ? elProp.options[elProp.selectedIndex].text : '';
+    var unidadTxt = (elUnits.value == 1 ? cfg.unit : cfg.plural);
+
     var motivo = 'Solicitud vía sitio web — ' + cfg.name +
-                 ' · ' + elUnits.value + ' ' + (elUnits.value == 1 ? cfg.unit : cfg.plural) +
+                 ' · ' + elUnits.value + ' ' + unidadTxt +
                  ' · Prioridad: ' + etiquetaPrio +
                  ' · Estimado: ' + outAmount.textContent +
                  (notes ? ' · Detalle: ' + notes : '');
@@ -2721,7 +2738,17 @@ button, [role="button"], summary, label[for], select, input[type="submit"],
       channel: 'web',
       business_name: name,
       topic: cfg.name,
-      note: motivo
+      note: motivo,          // el endpoint antiguo espera un solo campo
+      // Campos separados: el servidor los compone en líneas legibles para la
+      // alerta que te llega por WhatsApp / Telegram / correo.
+      servicio: cfg.name,
+      unidades: elUnits.value,
+      unidad_label: unidadTxt,
+      prioridad: etiquetaPrio,
+      estimado: outAmount.textContent,
+      zona: zonaTxt,
+      propiedad: propTxt,
+      detalle: notes         // literalmente lo que escribió el cliente
     };
     if(slot) cuerpo.starts_at = slot;
 
