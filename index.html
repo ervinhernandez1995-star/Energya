@@ -1361,6 +1361,13 @@ button, [role="button"], summary, label[for], select, input[type="submit"],
   .sched__days{ scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch; }
 }
 
+
+/* v12.5 · Día sin cupo: visible pero no elegible */
+.sday--full{opacity:.36;cursor:not-allowed;position:relative}
+.sday--full:hover{transform:none;border-color:rgba(255,255,255,.14)}
+.sday--full u{color:#ff9d9d;opacity:.9}
+.sday--full::after{content:'';position:absolute;left:14%;right:14%;top:50%;
+  height:1px;background:currentColor;opacity:.5;transform:rotate(-14deg)}
 </style>
 </head>
 <body>
@@ -2580,17 +2587,25 @@ button, [role="button"], summary, label[for], select, input[type="submit"],
     if(!e.days) return;
     e.days.innerHTML = '';
     SCHED.dias.forEach(function(d, i){
+      var lleno = d.completo || !d.huecos.length;
       var b = document.createElement('button');
       b.type = 'button';
-      b.className = 'sday';
+      b.className = 'sday' + (lleno ? ' sday--full' : '');
       b.setAttribute('role', 'tab');
-      b.setAttribute('aria-selected', String(i === SCHED.sel));
-      // "2026-08-10" → día 10. substring, no Date: ver regla 1 arriba.
+      b.setAttribute('aria-selected', String(i === SCHED.sel && !lleno));
+      b.disabled = lleno;
+      /* v12.5 · Los días llenos SIGUEN VISIBLES, marcados como completos.
+         Ocultarlos daría la sensación de que la agenda está rota o de que no
+         trabajamos ese día. Verlos tachados comunica lo contrario —que hay
+         demanda— y le ahorra al visitante pulsar un día donde no podrá elegir. */
+      var pie = lleno
+        ? (d.motivo === 'agenda llena' ? 'completo' : 'sin cupo')
+        : d.huecos.length + (d.huecos.length === 1 ? ' hueco' : ' huecos');
       b.innerHTML = '<b>' + d.fecha.slice(8, 10) + '</b>' +
                     '<i>' + d.dia_semana.slice(0, 3) + '</i>' +
-                    '<u>' + d.huecos.length + (d.huecos.length === 1 ? ' hueco' : ' huecos') + '</u>';
-      b.setAttribute('aria-label', d.etiqueta + ', ' + d.huecos.length + ' horarios');
-      b.addEventListener('click', function(){ schedElegirDia(i); });
+                    '<u>' + pie + '</u>';
+      b.setAttribute('aria-label', d.etiqueta + ' · ' + (lleno ? 'agenda completa' : d.huecos.length + ' horarios'));
+      if(!lleno) b.addEventListener('click', function(){ schedElegirDia(i); });
       e.days.appendChild(b);
     });
   }
@@ -2642,7 +2657,7 @@ button, [role="button"], summary, label[for], select, input[type="submit"],
     e.st.dataset.err = 'false';
     e.st.textContent = 'Consultando agenda…';
 
-    fetch(DASHBOARD_URL + '/api/v1/calendar/availability?days=14', { cache: 'no-store' })
+    fetch(DASHBOARD_URL + '/api/v1/calendar/availability?days=30', { cache: 'no-store' })
       .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(data){
         SCHED.dias = (data && data.dias) || [];
@@ -2652,8 +2667,16 @@ button, [role="button"], summary, label[for], select, input[type="submit"],
           return;
         }
         var total = SCHED.dias.reduce(function(a, d){ return a + d.huecos.length; }, 0);
-        e.st.textContent = total + ' horarios libres en los próximos días · elige el que te acomode';
-        schedElegirDia(0);
+        var llenos = SCHED.dias.filter(function(d){ return d.completo; }).length;
+        e.st.textContent = total + ' horarios libres en los próximos ' +
+          (data.horizonte_dias || 30) + ' días' +
+          (llenos ? ' · ' + llenos + (llenos === 1 ? ' día completo' : ' días completos') : '') +
+          ' · elige el que te acomode';
+        var primero = 0;
+        for(var k = 0; k < SCHED.dias.length; k++){
+          if(SCHED.dias[k].huecos && SCHED.dias[k].huecos.length){ primero = k; break; }
+        }
+        schedElegirDia(primero);
       })
       .catch(function(err){
         // Degradación honesta: si la agenda no responde, el formulario sigue
